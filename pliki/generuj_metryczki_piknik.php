@@ -52,7 +52,7 @@ function formatuj_date_time_druku()
 }
 
 // Funkcja generująca metryczkę piknikową w formacie PDF
-function generuj_metryczke_piknik_pdf($event_id, $user_pesel = null)
+function generuj_metryczke_piknik_pdf($event_id, $user_pesel = null, $timestamp = null)
 {
  global $wpdb;
 
@@ -103,7 +103,7 @@ function generuj_metryczke_piknik_pdf($event_id, $user_pesel = null)
  // Inicjalizacja TCPDF
  require_once('tcpdf_include.php');
 
- // Niestandardowa klasa TCPDF do usunięcia domyślnych headerów i footerów
+ // Niestandardowa klasa TCPDF - UPROSZCZONA, bez inwazyjnych zmian
  class MYPDF extends TCPDF
  {
   public function Header()
@@ -117,34 +117,35 @@ function generuj_metryczke_piknik_pdf($event_id, $user_pesel = null)
   }
  }
 
- // Utwórz nowy dokument PDF
+ // Utwórz nowy dokument PDF - UPROSZCZONA KONFIGURACJA
  $pdf = new MYPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
 
- // Ustaw parametry dokumentu
+ // Ustaw podstawowe parametry dokumentu
  $pdf->SetCreator('KS Do Celu');
  $pdf->SetAuthor('KS Do Celu');
  $pdf->SetTitle('Metryczki Piknikowe');
- $pdf->SetSubject('Metryczki na wydarzenie');
- $pdf->SetKeywords('metryczki, piknik, wydarzenie');
+
+ // Podstawowe wyłączenie header/footer
+ $pdf->setPrintHeader(false);
+ $pdf->setPrintFooter(false);
 
  // Wyłącz automatyczne przejścia do nowej strony
  $pdf->SetAutoPageBreak(false, 0);
 
- // Wyłącz napis "Powered by TCPDF"
- $pdf->setPrintHeader(false);
- $pdf->setPrintFooter(false);
-
  // Parametry strony i metryczek
  $page_width = $pdf->getPageWidth();
  $page_height = $pdf->getPageHeight();
- $left_margin = 10;
- $right_margin = 10;
+ $left_margin = 15;
+ $right_margin = 15;
  $metryczka_width = $page_width - $left_margin - $right_margin;
- $metryczka_height = 45; // Zmniejszona wysokość pojedynczej metryczki
- $metryczka_spacing = 2; // Minimalny odstęp między metryczkami
+ $metryczka_height = 40; // Wysokość pojedynczej metryczki
+ $metryczka_spacing = 10; // Odstęp między metryczkami
 
  $metryczki_per_page = 4;
- $start_y = 20;
+ $start_y = 15;
+
+ // Ustaw domyślne marginesy
+ $pdf->SetMargins($left_margin, 15, $right_margin);
 
  foreach ($participants as $participant) {
   // Dla każdego uczestnika stwórz nową stronę z 4 identycznymi metryczkami
@@ -155,13 +156,6 @@ function generuj_metryczke_piknik_pdf($event_id, $user_pesel = null)
   // Rysuj 4 identyczne metryczki dla tego uczestnika
   for ($i = 0; $i < $metryczki_per_page; $i++) {
    rysuj_metryczke_piknik($pdf, $participant, $event, $left_margin, $current_y, $metryczka_width, $metryczka_height);
-
-   // Dodaj linię oddzielającą (oprócz ostatniej metryczki)
-   if ($i < $metryczki_per_page - 1) {
-    $pdf->SetLineStyle(array('dash' => 0, 'width' => 0.3));
-    $pdf->Line($left_margin, $current_y + $metryczka_height + 1, $left_margin + $metryczka_width, $current_y + $metryczka_height + 1);
-   }
-
    $current_y += $metryczka_height + $metryczka_spacing;
   }
 
@@ -169,7 +163,7 @@ function generuj_metryczke_piknik_pdf($event_id, $user_pesel = null)
   dodaj_tekst_informacyjny($pdf, $left_margin, $metryczka_width);
  }
 
- // Generuj nazwę pliku
+ // Generuj nazwę pliku - ZAWSZE z timestampem
  $folder = dirname(__FILE__) . '/metryczki_piknik/';
 
  // Sprawdź czy folder istnieje, jeśli nie - utwórz go
@@ -177,22 +171,27 @@ function generuj_metryczke_piknik_pdf($event_id, $user_pesel = null)
   mkdir($folder, 0755, true);
  }
 
- // Nazwa pliku
+ // Jeśli nie podano timestamp, stwórz nowy
+ if (!$timestamp) {
+  $timestamp = date('YmdHis');
+ }
+
+ // Nazwa pliku ZAWSZE z timestampem
  if ($user_pesel) {
-  $nazwa_pliku = sanitize_file_name("metryczka_piknik_{$event_id}_{$user_pesel}.pdf");
+  $nazwa_pliku = sanitize_file_name("metryczka_piknik_{$event_id}_{$user_pesel}_{$timestamp}.pdf");
  } else {
-  $nazwa_pliku = sanitize_file_name("metryczki_piknik_{$event_id}_wszyscy.pdf");
+  $nazwa_pliku = sanitize_file_name("metryczki_piknik_{$event_id}_wszyscy_{$timestamp}.pdf");
  }
 
  $sciezka_pliku = $folder . $nazwa_pliku;
 
- // Zapisz plik - zastąpi istniejący jeśli taki jest
+ // Zapisz plik
  $pdf->Output($sciezka_pliku, 'F');
 
  return $nazwa_pliku;
 }
 
-// Funkcja rysująca pojedynczą metryczkę piknikową
+// Funkcja rysująca pojedynczą metryczkę piknikową - BEZPIECZNA WERSJA
 function rysuj_metryczke_piknik($pdf, $participant, $event, $x, $y, $width, $height)
 {
  // Formatuj dane
@@ -200,66 +199,111 @@ function rysuj_metryczke_piknik($pdf, $participant, $event, $x, $y, $width, $hei
  $druk_time = formatuj_date_time_druku();
  $full_name = trim($participant->first_name . ' ' . $participant->last_name);
 
- // Pierwszy wiersz: Imię Nazwisko | PESEL: xxxxx | druk: dd.mm HH:MM oraz Docelu.eu
- $pdf->SetFont('dejavusans', '', 14); // Zwiększona czcionka
- $pdf->SetXY($x + 5, $y + 5);
+ // Ustaw styl linii dla ramek
+ $pdf->SetDrawColor(0, 0, 0);
+ $pdf->SetLineWidth(0.3);
 
- // Lewa część - dane osobowe
+ // TYLKO główna zewnętrzna ramka
+ $pdf->Rect($x, $y, $width, $height);
+
+ // Dane osobowe w lewej części
+ $pdf->SetFont('dejavusans', '', 11);
+ $pdf->SetXY($x + 2, $y + 3);
  $personal_data = "{$full_name} | PESEL: {$participant->pesel} | druk: {$druk_time}";
- $personal_width = $width - 80; // Zostaw miejsce na "Docelu.eu"
- $pdf->Cell($personal_width, 8, $personal_data, 0, 0, 'L');
 
- // Prawa część - "Docelu.eu" - większa czcionka i bardziej po prawej
- $pdf->SetFont('dejavusans', 'B', 16);
- $pdf->SetXY($x + $width - 70, $y + 5);
- $pdf->Cell(65, 8, "Docelu.eu", 0, 1, 'R');
+ // Sprawdź czy pozycja jest w granicach strony
+ if ($x + 2 > 0 && $y + 3 > 0) {
+  $pdf->Cell($width * 0.75 - 4, 5, $personal_data, 0, 0, 'L');
+ }
 
- // Drugi wiersz: Nazwa wydarzenia dd.mm.yyyy, HH:MM - większa czcionka
- $pdf->SetFont('dejavusans', '', 14);
- $pdf->SetXY($x + 5, $y + 15);
- $event_info = "{$event->event_name} {$formatted_date}, {$participant->time_range}";
- $pdf->Cell($width - 10, 8, $event_info, 0, 1, 'L');
+ // Docelu.eu w prawej części
+ $pdf->SetFont('dejavusans', 'B', 14);
+ $docelu_x = $x + $width * 0.75;
+ if ($docelu_x > 0 && $y + 2 > 0) {
+  $pdf->SetXY($docelu_x, $y + 2);
+  $pdf->Cell($width * 0.25, 8, "Docelu.eu", 0, 0, 'C');
+ }
 
- // Tekst o przepisach bezpieczeństwa - mniejszy i bardziej kompaktowy
- $pdf->SetFont('dejavusans', '', 10);
- $pdf->SetXY($x + 5, $y + 25);
+ // Nazwa wydarzenia
+ $pdf->SetFont('dejavusans', '', 11);
+ $event_y = $y + 14;
+ if ($x + 2 > 0 && $event_y > 0) {
+  $pdf->SetXY($x + 2, $event_y);
+  $event_info = "{$event->event_name} {$formatted_date}, {$participant->time_range}";
+  $pdf->Cell($width - 4, 4, $event_info, 0, 0, 'L');
+ }
 
- $safety_text = "Znam przepisy bezpieczeństwa oraz regulamin strzelnicy. Potwierdzam, że wpisałem/am się do książki pobytu na strzelnicy. Zobowiązuję się przestrzegać wszystkich poleceń prowadzącego. Ponoszę odpowiedzialność za ew. wyrządzone przeze mnie szkody.";
+ // Tekst główny o przepisach
+ $pdf->SetFont('dejavusans', '', 8);
+ $main_y = $y + 22;
+ if ($x + 2 > 0 && $main_y > 0) {
+  $pdf->SetXY($x + 2, $main_y);
 
- $pdf->MultiCell($width - 10, 3, $safety_text, 0, 'L', false, 1);
+  $safety_text = "Znam przepisy bezpieczeństwa oraz regulamin strzelnicy. Potwierdzam, że wpisałem/am się do książki pobytu na strzelnicy. Zobowiązuję się przestrzegać wszystkich poleceń prowadzącego. Ponoszę odpowiedzialność za ew. wyrządzone przeze mnie szkody.";
 
- // Tekst o samopoczuciu i miejsce na podpis - jedna linia
- $pdf->SetXY($x + 5, $y + $height - 8);
- $podpis_text = "Czuję się dobrze, jestem trzeźwy/a i gotowy/a do zajęć. ";
- $pdf->Cell($pdf->GetStringWidth($podpis_text), 6, $podpis_text, 0, 0, 'L');
+  $pdf->MultiCell($width - 4, 3.2, $safety_text, 0, 'L', false, 1);
+ }
 
- // Kropki do podpisu
- $remaining_width = $width - 10 - $pdf->GetStringWidth($podpis_text) - 80; // Zostaw miejsce na "(czytelny podpis)"
- $dots = str_repeat('.', floor($remaining_width / 2));
- $pdf->Cell($remaining_width, 6, $dots, 0, 0, 'L');
+ // Linia do podpisu
+ $signature_y = $y + $height - 8;
+ if ($x + 2 > 0 && $signature_y > 0) {
+  $pdf->SetXY($x + 2, $signature_y);
+  $pdf->SetFont('dejavusans', '', 9);
 
- // Tekst "(c z y t e l n y  p o d p i s)" na końcu linii
- $pdf->SetFont('dejavusans', '', 9);
- $pdf->Cell(80, 6, "(c z y t e l n y  p o d p i s)", 0, 1, 'R');
+  $podpis_text = "Czuję się dobrze, jestem trzeźwy/a i gotowy/a do zajęć. ";
+  $text_width = $pdf->GetStringWidth($podpis_text);
+  $pdf->Cell($text_width, 4, $podpis_text, 0, 0, 'L');
+
+  // Kropki - bezpieczne obliczenie
+  $available_space = max(0, $width - $text_width - 6);
+  if ($available_space > 0) {
+   $dots_count = floor($available_space / 1.2);
+   $dots = str_repeat('.', max(0, $dots_count));
+   $pdf->Cell($available_space, 4, $dots, 0, 1, 'L');
+  }
+
+  // "(czytelny podpis)" - bezpieczne pozycjonowanie
+  $podpis_center_x = $x + $text_width + ($available_space / 2) - 40;
+  $podpis_bottom_y = $y + $height - 4;
+
+  if ($podpis_center_x > 0 && $podpis_bottom_y > 0 && $podpis_center_x < $pdf->getPageWidth()) {
+   $pdf->SetXY($podpis_center_x, $podpis_bottom_y);
+   $pdf->SetFont('dejavusans', '', 8);
+   $pdf->Cell(80, 4, "(c z y t e l n y    p o d p i s)", 0, 0, 'C');
+  }
+ }
 }
 
-// Funkcja dodająca tekst informacyjny na dole strony
+// Funkcja dodająca tekst informacyjny na dole strony - ZGODNIE ZE WZOREM BRATERSTWA
 function dodaj_tekst_informacyjny($pdf, $left_margin, $width)
 {
- // Pozycjonowanie tekstu informacyjnego - wyżej niż wcześniej
- $pdf->SetFont('dejavusans', 'B', 10);
- $pdf->SetXY($left_margin, $pdf->getPageHeight() - 45);
- $pdf->Cell($width, 6, "Bilety podpisz i wytnij na paski, 4 bilety wystarczą", 0, 1, 'L');
+ // Pozycjonowanie tekstu informacyjnego - jak w wzorcu
+ $pdf->SetFont('dejavusans', 'B', 11);
+ $pdf->SetXY($left_margin, 235);
+ $pdf->Cell($width, 6, "Bilety podpisz i wytnij na paski, 4 bilety wystarczą", 0, 1, 'C');
 
  $pdf->SetFont('dejavusans', '', 9);
 
- $info_text = "Polecamy zabrać minimum 150 zł, jeśli uważasz że \"Rambo\" to klasyka kina akcji lub mniej, jeśli jednak trochę się boisz.\n\n";
- $info_text .= "Na każdym stanowisku jest kilka (4-8) różnych modeli broni i z każdego możesz wystrzelić dowolną liczbę pakietów. Koszt pakietu jest podany w ogłoszeniu o pikniku.\n\n";
- $info_text .= "Strzelając na stanowisku np. 1 pakiet z Glocka 17, 2 z Kałasznikowa i 1 ze strzelby zapłacisz na zakończenie tury za 4 pakiety.\n\n";
- $info_text .= "W kolejnej turze możesz przejść na inne stanowisko i postrzelać z innej broni.";
+ // Pierwszy akapit - tekst jak w wzorcu
+ $pdf->SetXY($left_margin, 243);
+ $info_text1 = 'Polecamy zabrać minimum 150 zł, jeśli uważasz że "Rambo" to klasyka kina akcji lub mniej, jeśli jednak trochę się boisz.';
+ $pdf->MultiCell($width, 4, $info_text1, 0, 'C', false, 1);
 
- $pdf->SetXY($left_margin, $pdf->getPageHeight() - 38);
- $pdf->MultiCell($width, 3.5, $info_text, 0, 'L', false, 1);
+ // Pusta linia
+ $pdf->Ln(2);
+
+ // Drugi akapit - tekst jak w wzorcu
+ $pdf->SetX($left_margin);
+ $info_text2 = "Na każdym stanowisku jest kilka (4-8) różnych modeli broni i z każdego możesz wystrzelić dowolną liczbę pakietów. Koszt pakietu jest podany w ogłoszeniu o pikniku.";
+ $pdf->MultiCell($width, 4, $info_text2, 0, 'C', false, 1);
+
+ // Pusta linia
+ $pdf->Ln(2);
+
+ // Trzeci akapit - tekst jak w wzorcu
+ $pdf->SetX($left_margin);
+ $info_text3 = "Strzelając na stanowisku np. 1 pakiet z Glocka 17, 2 z Kałasznikowa i 1 ze strzelby zapłacisz na zakończenie tury za 4 pakiety. W kolejnej turze możesz przejść na inne stanowisko i postrzelać z innej broni.";
+ $pdf->MultiCell($width, 4, $info_text3, 0, 'C', false, 1);
 }
 
 // Obsługa żądania pobierania metryczki
@@ -267,30 +311,44 @@ if (isset($_GET['event_id'])) {
  $event_id = intval($_GET['event_id']);
  $user_pesel = isset($_GET['pesel']) ? sanitize_text_field($_GET['pesel']) : null;
 
- // Sprawdź, czy użytkownik jest zalogowany i czy jest administratorem
- if (!is_user_logged_in() || !current_user_can('administrator')) {
+ // Sprawdź, czy użytkownik jest zalogowany
+ if (!is_user_logged_in()) {
+  wp_die('Musisz być zalogowany, aby pobrać metryczkę');
+ }
+
+ // Jeśli pobiera wszystkie metryczki (bez PESEL), musi być administratorem
+ if (!$user_pesel && !current_user_can('administrator')) {
   wp_die('Nie masz uprawnień do wykonania tej operacji');
+ }
+
+ // Jeśli pobiera swoją metryczkę, sprawdź czy to jego PESEL
+ if ($user_pesel) {
+  $current_user = wp_get_current_user();
+  $user_pesel_from_meta = get_user_meta($current_user->ID, 'pesel', true);
+  if ($user_pesel !== $user_pesel_from_meta && !current_user_can('administrator')) {
+   wp_die('Nie masz uprawnień do pobrania tej metryczki');
+  }
  }
 
  // Ścieżka do pliku
  $folder = dirname(__FILE__) . '/metryczki_piknik/';
 
+ // ZAWSZE dodaj timestamp do nazwy pliku
+ $timestamp = date('YmdHis');
  if ($user_pesel) {
-  $nazwa_pliku = sanitize_file_name("metryczka_piknik_{$event_id}_{$user_pesel}.pdf");
+  $nazwa_pliku = sanitize_file_name("metryczka_piknik_{$event_id}_{$user_pesel}_{$timestamp}.pdf");
  } else {
-  $nazwa_pliku = sanitize_file_name("metryczki_piknik_{$event_id}_wszyscy.pdf");
+  $nazwa_pliku = sanitize_file_name("metryczki_piknik_{$event_id}_wszyscy_{$timestamp}.pdf");
  }
 
  $sciezka_pliku = $folder . $nazwa_pliku;
 
- // Sprawdź czy plik istnieje, jeśli nie - wygeneruj go
- if (!file_exists($sciezka_pliku)) {
-  $nazwa_pliku = generuj_metryczke_piknik_pdf($event_id, $user_pesel);
-  if (!$nazwa_pliku) {
-   wp_die("Błąd podczas generowania metryczki.");
-  }
-  $sciezka_pliku = $folder . $nazwa_pliku;
+ // Wygeneruj nowy plik (zawsze z nową nazwą)
+ $nazwa_pliku = generuj_metryczke_piknik_pdf($event_id, $user_pesel, $timestamp);
+ if (!$nazwa_pliku) {
+  wp_die("Błąd podczas generowania metryczki.");
  }
+ $sciezka_pliku = $folder . $nazwa_pliku;
 
  // Obsługa pobierania pliku
  if (file_exists($sciezka_pliku)) {
@@ -314,7 +372,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generuj_metryczki_pik
    wp_die('Nie masz uprawnień do wykonania tej operacji');
   }
 
-  $nazwa_pliku = generuj_metryczke_piknik_pdf($event_id);
+  $timestamp = date('YmdHis');
+  $nazwa_pliku = generuj_metryczke_piknik_pdf($event_id, null, $timestamp);
 
   if ($nazwa_pliku) {
    $url_pliku = home_url('/wp-content/themes/Astra-child/my-templates/tcpdf/examples/metryczki_piknik/' . $nazwa_pliku);
